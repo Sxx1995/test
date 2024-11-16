@@ -1,3 +1,10 @@
+# ------------------------------------------------------------------------
+# BEAUTY DETR
+# Copyright (c) 2022 Ayush Jain & Nikolaos Gkanatsios
+# Licensed under CC-BY-NC [see LICENSE for details]
+# All Rights Reserved
+# ------------------------------------------------------------------------
+"""A class to collect and evaluate language grounding results."""
 
 import torch
 
@@ -69,6 +76,7 @@ class GroundingEvaluator:
         print('\nAnalysis')
         for field in ['easy', 'hard', 'vd', 'vid', 'unique', 'multi']:
             print(field, self.dets[field] / self.gts[field])
+        return self.dets, self.gts
 
     def synchronize_between_processes(self):
         all_dets = misc.all_gather(self.dets)
@@ -98,7 +106,7 @@ class GroundingEvaluator:
             prefix (str): layer name
         """
         self.evaluate_bbox_by_span(end_points, prefix)
-        self.evaluate_bbox_by_contrast(end_points, prefix)
+        return self.evaluate_bbox_by_contrast(end_points, prefix)
 
     def evaluate_bbox_by_span(self, end_points, prefix):
         """
@@ -184,6 +192,7 @@ class GroundingEvaluator:
         sem_scores[:, :sem_scores_.size(1), :sem_scores_.size(2)] = sem_scores_
 
         # Highest scoring box -> iou
+        outputs = []
         for bid in range(len(positive_map)):
             # Keep scores for annotated objects only
             num_obj = int(end_points['box_label_mask'][bid].sum())
@@ -211,10 +220,12 @@ class GroundingEvaluator:
                 for k in self.topks:
                     found = thresholded[:, :k].any(1)
                     self.dets[(prefix, t, k, 'bbf')] += found.sum().item()
+                    if (prefix == 'last_' and t == 0.5 and k == 1):
+                        outputs.append([found, pbox[0]])
                     self.gts[(prefix, t, k, 'bbf')] += len(thresholded)
                     if prefix == 'last_':
                         found = found[0].item()
-                        if k == 1 and t == self.thresholds[0]:
+                        if k == 1 and t == self.thresholds[1]:
                             if end_points['is_view_dep'][bid]:
                                 self.gts['vd'] += 1
                                 self.dets['vd'] += found
@@ -233,6 +244,7 @@ class GroundingEvaluator:
                             else:
                                 self.gts['multi'] += 1
                                 self.dets['multi'] += found
+        return outputs
 
     def _parse_gt(self, end_points):
         positive_map = torch.clone(end_points['positive_map'])  # (B, K, 256)
@@ -285,11 +297,14 @@ class GroundingGTEvaluator:
             'bbf': 'Box given span (contrastive)'
         }
         for prefix in self.prefixes:
-            for mode in ['bbs', 'bbf']:
+            for mode in ['bbf']:
                 print(prefix, mode_str[mode], f'Acc: {self.dets[(prefix, mode)] / self.gts[(prefix, mode)]}')
         print('\nAnalysis')
         for field in ['easy', 'hard', 'vd', 'vid', 'unique', 'multi']:
-            print(field, self.dets[field] / self.gts[field])
+            
+            print(field, self.dets[field] / self.gts[field], self.dets[field], self.gts[field])
+        return self.dets, self.gts
+        
 
     def synchronize_between_processes(self):
         all_dets = misc.all_gather(self.dets)
@@ -318,8 +333,8 @@ class GroundingGTEvaluator:
             end_points (dict): contains predictions and gt
             prefix (str): layer name
         """
-        self.evaluate_bbox_by_span(end_points, prefix)
-        self.evaluate_bbox_by_contrast(end_points, prefix)
+        #self.evaluate_bbox_by_span(end_points, prefix)
+        return self.evaluate_bbox_by_contrast(end_points, prefix)
 
     def evaluate_bbox_by_span(self, end_points, prefix):
         """
@@ -360,6 +375,7 @@ class GroundingGTEvaluator:
             ious, _ = _iou3d_par(all_gt_boxes,  # (gt, 6)
                 box_cxcyczwhd_to_xyzxyz(pred_bbox[bid])  # (Q, 6)
             )  # (gt, Q)
+            #is_correct = (ious.max(0)[0] > 0.5) * 1.0
             is_correct = (ious.max(0)[0] > 0.25) * 1.0
 
             # Keep scores for annotated objects only
@@ -410,6 +426,7 @@ class GroundingGTEvaluator:
         sem_scores[:, :sem_scores_.size(1), :sem_scores_.size(2)] = sem_scores_
 
         # Highest scoring box -> iou
+        outputs = []
         for bid in range(len(positive_map)):
             all_gt_boxes = box_cxcyczwhd_to_xyzxyz(
                     end_points['all_bboxes'][bid][
@@ -419,7 +436,9 @@ class GroundingGTEvaluator:
             ious, _ = _iou3d_par(all_gt_boxes,  # (gt, 6)
                 box_cxcyczwhd_to_xyzxyz(pred_bbox[bid])  # (Q, 6)
             )  # (gt, Q)
-            is_correct = (ious.max(0)[0] > 0.25) * 1.0
+            #is_correct = (ious.max(0)[0] > 0.25) * 1.0
+            is_correct = (ious.max(0)[0] > 0.) * 1.0
+            #is_correct = (ious.max(0)[0] > 0.5) * 1.0
             # Keep scores for annotated objects only
             num_obj = int(end_points['box_label_mask'][bid].sum())
             pmap = positive_map[bid, :num_obj]
@@ -446,6 +465,9 @@ class GroundingGTEvaluator:
             # Measure IoU>threshold, ious are (obj, 10)
             self.dets[(prefix, 'bbf')] += found
             self.gts[(prefix, 'bbf')] += 1
+            if (prefix == 'last_'):
+                 outputs.append([found, pbox[0]])
+
             if prefix == 'last_':
                 if end_points['is_view_dep'][bid]:
                     self.gts['vd'] += 1
@@ -465,6 +487,7 @@ class GroundingGTEvaluator:
                 else:
                     self.gts['multi'] += 1
                     self.dets['multi'] += found
+        return outputs
 
     def _parse_gt(self, end_points):
         positive_map = torch.clone(end_points['positive_map'])  # (B, K, 256)
