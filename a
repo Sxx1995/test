@@ -1,10 +1,3 @@
-# ------------------------------------------------------------------------
-# BEAUTY DETR
-# Copyright (c) 2022 Ayush Jain & Nikolaos Gkanatsios
-# Licensed under CC-BY-NC [see LICENSE for details]
-# All Rights Reserved
-# ------------------------------------------------------------------------
-"""A class to collect and evaluate language grounding results."""
 
 import torch
 
