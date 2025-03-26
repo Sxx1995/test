@@ -1,27 +1,51 @@
+import pandas as pd
 import requests
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
 
-# 查询URL
-url = "http://lookup.dbpedia.org/api/search/KeywordSearch?QueryClass=place&QueryString=berlin"
+def fetch_class(title):
+    import requests
+    try:
+        url = f"http://lookup.dbpedia.org/api/search?query={title}"
+        headers = {'Accept': 'application/xml'}
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
 
-# 获取XML内容
-response = requests.get(url, headers={'Accept': 'application/xml'})
-response.raise_for_status()  # 确保请求成功
+        root = ET.fromstring(response.text)
+        first_result = root.find(".//Result")
 
-# 解析XML
-root = ET.fromstring(response.text)
+        classes = []
+        if first_result is not None:
+            for class_element in first_result.findall(".//Class/Label"):
+                classes.append(class_element.text)
+        return classes
 
-# 提取所有Class标签的Label
-classes = set()  # 用set防止重复
-for class_element in root.findall(".//Class/Label"):
-    classes.add(class_element.text)
+    except Exception as e:
+        print(f"Error fetching {title}: {e}")
+        return []
 
-# 输出结果
-print("提取的Class:")
-for class_label in classes:
-    print(class_label)
+def parallel_fetch(titles, num_workers=10):
+    from concurrent.futures import ThreadPoolExecutor
+    from tqdm import tqdm
 
-# 保存到文件
-with open("dbpedia_classes.txt", "w", encoding="utf-8") as f:
-    for class_label in classes:
-        f.write(f"{class_label}\n")
+    all_classes = []
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        results = list(tqdm(executor.map(fetch_class, titles), total=len(titles)))
+
+    return results
+
+if __name__ == "__main__":
+    import xml.etree.ElementTree as ET
+
+    df = pd.read_csv('data.tsv', sep='\t', names=['id', 'title'，'section', 'text'])
+
+    titles = df['title'].tolist()
+    classes = parallel_fetch(titles, num_workers=10)
+
+    df['classes'] = classes
+
+    df.to_csv("output_with_classes.csv", index=False)
+
+    print(df.head())
