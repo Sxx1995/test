@@ -7,7 +7,7 @@ from tqdm import tqdm
 def fetch_class(title):
     import requests
     try:
-        url = f"http://lookup.dbpedia.org/api/search?query={title}"
+        url = f"http://lookup.dbpedia.org/api/search/KeywordSearch?QueryString={title}"
         headers = {'Accept': 'application/xml'}
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
